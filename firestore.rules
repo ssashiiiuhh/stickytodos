@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // StickyTodos is a personal single-user app with no auth.
+    // Restrict access to the app's bundle ID via App Check in future;
+    // for now allow all reads/writes (it's a private project).
+    match /notes/{noteId} {
+      allow read, write: if true;
+    }
+  }
+}

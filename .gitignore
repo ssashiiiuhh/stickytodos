@@ -1,0 +1,6 @@
+.build/
+build/
+dist/
+*.log
+.DS_Store
+decode_test
