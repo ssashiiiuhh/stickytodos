@@ -227,34 +227,7 @@ final class NotesViewModel {
         guard !trimmed.isEmpty else { return }
         guard let idx = notes.firstIndex(where: { $0.id == noteID }) else { return }
 
-        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.date.rawValue)
-        var extractedDate: Date? = nil
-        var finalTitle = trimmed
-
-        if let detector = detector {
-            let matches = detector.matches(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count))
-            for match in matches where match.date != nil {
-                let date = match.date!
-                guard date > Date().addingTimeInterval(-60) else { continue }
-                let matchRange = match.range
-                if let range = Range(matchRange, in: trimmed) {
-                    let potentialTitle = trimmed.replacingCharacters(in: range, with: "").trimmingCharacters(in: .whitespaces)
-                    let stopWords = ["at", "on", "by", "for", "in", "due", "is", "the", "a"]
-                    let titleTokens = potentialTitle.components(separatedBy: .whitespaces)
-                        .filter { !stopWords.contains($0.lowercased()) && !$0.isEmpty }
-                    if !titleTokens.isEmpty {
-                        extractedDate = date
-                        finalTitle = potentialTitle
-                        break
-                    }
-                }
-            }
-        }
-
-        let words = finalTitle.components(separatedBy: .whitespaces)
-        if let last = words.last?.lowercased(), ["at", "on", "by", "for", "in", "due"].contains(last) {
-            finalTitle = words.dropLast().joined(separator: " ")
-        }
+        let (finalTitle, extractedDate) = DateParser.extractDate(from: trimmed)
 
         let item = TodoItem(text: finalTitle, dueDate: extractedDate)
         notes[idx].items.append(item)
@@ -324,7 +297,11 @@ final class NotesViewModel {
     func updateItemText(_ itemID: UUID, in noteID: UUID, text: String) {
         guard let nIdx = notes.firstIndex(where: { $0.id == noteID }),
               let iIdx = notes[nIdx].items.firstIndex(where: { $0.id == itemID }) else { return }
-        notes[nIdx].items[iIdx].text = text
+        let (finalTitle, extractedDate) = DateParser.extractDate(from: text)
+        notes[nIdx].items[iIdx].text = finalTitle
+        if let newDate = extractedDate {
+            notes[nIdx].items[iIdx].dueDate = newDate
+        }
         NotificationManager.cancelNotification(for: itemID)
         NotificationManager.scheduleNotification(for: notes[nIdx].items[iIdx], noteTitle: notes[nIdx].title)
         if syncToReminders {
