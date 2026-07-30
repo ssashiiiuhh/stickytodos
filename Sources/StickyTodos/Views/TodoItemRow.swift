@@ -4,6 +4,8 @@ import SwiftUI
 struct TodoItemRow: View {
     let item: TodoItem
     let noteColor: NoteColor
+    var viewModel: NotesViewModel? = nil
+    var currentNoteID: UUID? = nil
     let onToggle: () -> Void
     let onDelete: () -> Void
     let onTextChange: (String) -> Void
@@ -14,6 +16,16 @@ struct TodoItemRow: View {
     @State private var isShowingDatePicker: Bool = false
     @State private var tempDate: Date = Date()
     @FocusState private var isFocused: Bool
+
+    private var isShared: Bool {
+        viewModel?.isTaskShared(item) ?? false
+    }
+
+    private var sharedNoteNames: String {
+        guard let vm = viewModel else { return "" }
+        let names = vm.sharedNotes(for: item).map(\.title)
+        return names.joined(separator: ", ")
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -73,6 +85,14 @@ struct TodoItemRow: View {
                 noteColor.textColor.opacity(1.0)
             )
             .strikethrough(item.isCompleted || item.isArchived, color: noteColor.textColor.opacity(0.65))
+
+            // Shared Link Indicator Badge
+            if isShared {
+                Image(systemName: "link")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(noteColor.textColor.opacity(0.75))
+                    .help("Shared across: \(sharedNoteNames)")
+            }
 
             Spacer()
 
@@ -139,8 +159,32 @@ struct TodoItemRow: View {
                     onDateChange(nil)
                 }
             }
+
             Divider()
-            Button("Delete Task", role: .destructive, action: onDelete)
+
+            if let vm = viewModel, let noteID = currentNoteID {
+                let otherNotes = vm.notes.filter { $0.id != noteID && !$0.isArchived }
+                if !otherNotes.isEmpty {
+                    Menu("Share to Note...") {
+                        ForEach(otherNotes) { targetNote in
+                            Button(targetNote.title) {
+                                vm.shareTask(item, to: targetNote.id)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if isShared {
+                Button("Unlink from this Note", role: .destructive) {
+                    onDelete()
+                }
+                Button("Delete Task Everywhere", role: .destructive) {
+                    viewModel?.deleteSharedTaskEverywhere(item.sharedTaskID)
+                }
+            } else {
+                Button("Delete Task", role: .destructive, action: onDelete)
+            }
         }
         .padding(.vertical, 2)
         .padding(.horizontal, 4)

@@ -242,45 +242,63 @@ final class NotesViewModel {
     func updateItemDueDate(_ itemID: UUID, in noteID: UUID, date: Date?) {
         guard let nIdx = notes.firstIndex(where: { $0.id == noteID }),
               let iIdx = notes[nIdx].items.firstIndex(where: { $0.id == itemID }) else { return }
-        notes[nIdx].items[iIdx].dueDate = date
-        NotificationManager.cancelNotification(for: itemID)
-        if date != nil {
-            NotificationManager.scheduleNotification(for: notes[nIdx].items[iIdx], noteTitle: notes[nIdx].title)
-        }
-        if syncToReminders {
-            RemindersManager.shared.syncTask(item: notes[nIdx].items[iIdx], noteTitle: notes[nIdx].title)
+        
+        let sharedID = notes[nIdx].items[iIdx].sharedTaskID
+        for noteIndex in notes.indices {
+            for itemIndex in notes[noteIndex].items.indices {
+                if notes[noteIndex].items[itemIndex].sharedTaskID == sharedID {
+                    notes[noteIndex].items[itemIndex].dueDate = date
+                    NotificationManager.cancelNotification(for: notes[noteIndex].items[itemIndex].id)
+                    if date != nil {
+                        NotificationManager.scheduleNotification(for: notes[noteIndex].items[itemIndex], noteTitle: notes[noteIndex].title)
+                    }
+                    if syncToReminders {
+                        RemindersManager.shared.syncTask(item: notes[noteIndex].items[itemIndex], noteTitle: notes[noteIndex].title)
+                    }
+                }
+            }
         }
     }
 
     func toggleItem(_ itemID: UUID, in noteID: UUID) {
         guard let nIdx = notes.firstIndex(where: { $0.id == noteID }),
               let iIdx = notes[nIdx].items.firstIndex(where: { $0.id == itemID }) else { return }
-        notes[nIdx].items[iIdx].isCompleted.toggle()
-        let isNowCompleted = notes[nIdx].items[iIdx].isCompleted
+        
+        let newCompletedState = !notes[nIdx].items[iIdx].isCompleted
+        let sharedID = notes[nIdx].items[iIdx].sharedTaskID
 
-        if isNowCompleted {
-            NotificationManager.cancelNotification(for: itemID)
-            if let recurrence = notes[nIdx].items[iIdx].recurrence,
-               let oldDueDate = notes[nIdx].items[iIdx].dueDate {
-                var dateComponents = DateComponents()
-                switch recurrence {
-                case .daily:   dateComponents.day = 1
-                case .weekly:  dateComponents.day = 7
-                case .monthly: dateComponents.month = 1
-                }
-                if let newDueDate = Calendar.current.date(byAdding: dateComponents, to: oldDueDate) {
-                    let nextItem = TodoItem(text: notes[nIdx].items[iIdx].text,
-                                           dueDate: newDueDate, recurrence: recurrence)
-                    notes[nIdx].items.append(nextItem)
-                    NotificationManager.scheduleNotification(for: nextItem, noteTitle: notes[nIdx].title)
+        for noteIndex in notes.indices {
+            for itemIndex in notes[noteIndex].items.indices {
+                if notes[noteIndex].items[itemIndex].sharedTaskID == sharedID {
+                    notes[noteIndex].items[itemIndex].isCompleted = newCompletedState
+                    let currentID = notes[noteIndex].items[itemIndex].id
+                    
+                    if newCompletedState {
+                        NotificationManager.cancelNotification(for: currentID)
+                        if let recurrence = notes[noteIndex].items[itemIndex].recurrence,
+                           let oldDueDate = notes[noteIndex].items[itemIndex].dueDate {
+                            var dateComponents = DateComponents()
+                            switch recurrence {
+                            case .daily:   dateComponents.day = 1
+                            case .weekly:  dateComponents.day = 7
+                            case .monthly: dateComponents.month = 1
+                            }
+                            if let newDueDate = Calendar.current.date(byAdding: dateComponents, to: oldDueDate) {
+                                let nextItem = TodoItem(text: notes[noteIndex].items[itemIndex].text,
+                                                       dueDate: newDueDate, recurrence: recurrence)
+                                notes[noteIndex].items.append(nextItem)
+                                NotificationManager.scheduleNotification(for: nextItem, noteTitle: notes[noteIndex].title)
+                            }
+                        }
+                    } else {
+                        NotificationManager.scheduleNotification(for: notes[noteIndex].items[itemIndex], noteTitle: notes[noteIndex].title)
+                    }
+
+                    if syncToReminders {
+                        RemindersManager.shared.syncTask(item: notes[noteIndex].items[itemIndex], noteTitle: notes[noteIndex].title)
+                    }
                 }
             }
-        } else {
-            NotificationManager.scheduleNotification(for: notes[nIdx].items[iIdx], noteTitle: notes[nIdx].title)
-        }
-
-        if syncToReminders {
-            RemindersManager.shared.syncTask(item: notes[nIdx].items[iIdx], noteTitle: notes[nIdx].title)
         }
     }
 
@@ -294,18 +312,73 @@ final class NotesViewModel {
         }
     }
 
+    func deleteSharedTaskEverywhere(_ sharedTaskID: UUID) {
+        for noteIndex in notes.indices {
+            let itemsToRemove = notes[noteIndex].items.filter { $0.sharedTaskID == sharedTaskID }
+            for item in itemsToRemove {
+                NotificationManager.cancelNotification(for: item.id)
+                if syncToReminders {
+                    RemindersManager.shared.deleteSyncTask(itemID: item.id)
+                }
+            }
+            notes[noteIndex].items.removeAll { $0.sharedTaskID == sharedTaskID }
+        }
+    }
+
+    func shareTask(_ item: TodoItem, to targetNoteID: UUID) {
+        guard let targetIdx = notes.firstIndex(where: { $0.id == targetNoteID }) else { return }
+        // Check if target note already contains this shared task
+        if notes[targetIdx].items.contains(where: { $0.sharedTaskID == item.sharedTaskID }) {
+            return
+        }
+        let newItem = TodoItem(
+            id: UUID(),
+            sharedTaskID: item.sharedTaskID,
+            text: item.text,
+            isCompleted: item.isCompleted,
+            isArchived: item.isArchived,
+            blockedBy: item.blockedBy,
+            createdAt: item.createdAt,
+            dueDate: item.dueDate,
+            recurrence: item.recurrence
+        )
+        notes[targetIdx].items.append(newItem)
+        NotificationManager.scheduleNotification(for: newItem, noteTitle: notes[targetIdx].title)
+        if syncToReminders {
+            RemindersManager.shared.syncTask(item: newItem, noteTitle: notes[targetIdx].title)
+        }
+    }
+
+    func sharedNotes(for item: TodoItem) -> [StickyNote] {
+        notes.filter { note in
+            note.items.contains { $0.sharedTaskID == item.sharedTaskID }
+        }
+    }
+
+    func isTaskShared(_ item: TodoItem) -> Bool {
+        sharedNotes(for: item).count > 1
+    }
+
     func updateItemText(_ itemID: UUID, in noteID: UUID, text: String) {
         guard let nIdx = notes.firstIndex(where: { $0.id == noteID }),
               let iIdx = notes[nIdx].items.firstIndex(where: { $0.id == itemID }) else { return }
         let (finalTitle, extractedDate) = DateParser.extractDate(from: text)
-        notes[nIdx].items[iIdx].text = finalTitle
-        if let newDate = extractedDate {
-            notes[nIdx].items[iIdx].dueDate = newDate
-        }
-        NotificationManager.cancelNotification(for: itemID)
-        NotificationManager.scheduleNotification(for: notes[nIdx].items[iIdx], noteTitle: notes[nIdx].title)
-        if syncToReminders {
-            RemindersManager.shared.syncTask(item: notes[nIdx].items[iIdx], noteTitle: notes[nIdx].title)
+        let sharedID = notes[nIdx].items[iIdx].sharedTaskID
+
+        for noteIndex in notes.indices {
+            for itemIndex in notes[noteIndex].items.indices {
+                if notes[noteIndex].items[itemIndex].sharedTaskID == sharedID {
+                    notes[noteIndex].items[itemIndex].text = finalTitle
+                    if let newDate = extractedDate {
+                        notes[noteIndex].items[itemIndex].dueDate = newDate
+                    }
+                    NotificationManager.cancelNotification(for: notes[noteIndex].items[itemIndex].id)
+                    NotificationManager.scheduleNotification(for: notes[noteIndex].items[itemIndex], noteTitle: notes[noteIndex].title)
+                    if syncToReminders {
+                        RemindersManager.shared.syncTask(item: notes[noteIndex].items[itemIndex], noteTitle: notes[noteIndex].title)
+                    }
+                }
+            }
         }
     }
 

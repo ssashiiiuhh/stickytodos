@@ -9,6 +9,7 @@ struct TodoItem: Identifiable, Codable, Equatable {
     }
 
     var id: UUID
+    var sharedTaskID: UUID
     var text: String
     var isCompleted: Bool
     var isArchived: Bool
@@ -17,8 +18,19 @@ struct TodoItem: Identifiable, Codable, Equatable {
     var dueDate: Date?
     var recurrence: RecurrenceRule?
 
-    init(id: UUID = UUID(), text: String, isCompleted: Bool = false, isArchived: Bool = false, blockedBy: UUID? = nil, createdAt: Date = Date(), dueDate: Date? = nil, recurrence: RecurrenceRule? = nil) {
+    init(
+        id: UUID = UUID(),
+        sharedTaskID: UUID? = nil,
+        text: String,
+        isCompleted: Bool = false,
+        isArchived: Bool = false,
+        blockedBy: UUID? = nil,
+        createdAt: Date = Date(),
+        dueDate: Date? = nil,
+        recurrence: RecurrenceRule? = nil
+    ) {
         self.id = id
+        self.sharedTaskID = sharedTaskID ?? id
         self.text = text
         self.isCompleted = isCompleted
         self.isArchived = isArchived
@@ -31,7 +43,9 @@ struct TodoItem: Identifiable, Codable, Equatable {
     // Custom Decodable to handle legacy data
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
+        let decodedID = try container.decode(UUID.self, forKey: .id)
+        id = decodedID
+        sharedTaskID = try container.decodeIfPresent(UUID.self, forKey: .sharedTaskID) ?? decodedID
         text = try container.decode(String.self, forKey: .text)
         isCompleted = try container.decode(Bool.self, forKey: .isCompleted)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()

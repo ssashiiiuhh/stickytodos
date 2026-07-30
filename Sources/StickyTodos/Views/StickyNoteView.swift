@@ -186,6 +186,8 @@ struct StickyNoteView: View {
         TodoItemRow(
             item: item,
             noteColor: note.color,
+            viewModel: viewModel,
+            currentNoteID: note.id,
             onToggle: { viewModel.toggleItem(item.id, in: note.id) },
             onDelete: { viewModel.deleteItem(item.id, from: note.id) },
             onTextChange: { newText in viewModel.updateItemText(item.id, in: note.id, text: newText) },
